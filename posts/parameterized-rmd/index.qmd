@@ -1,0 +1,168 @@
+---
+title: Parameterized RMarkdown is Amazing
+date: '2023-02-25'
+tags:
+  - R Markdown
+bibliography: "bibliography.bib"
+nocite: |
+     @*
+author: "Robert W. Walker"
+format: 
+   html:
+     self-contained-math: true
+     code-fold: true
+     code-copy: hover
+     code-block-border-left: true
+     df-print: paged
+     fig-format: retina
+     footnotes-hover: true
+     html-math-method: katex
+     mainfont: Playfair Display
+     toc: true
+     toc-title: Navigation
+     theme: simplex
+---
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE)
+```
+
+# Parameterized R Markdown
+
+A while back, I learned that you can parameterize markdown.  You can send it something to process as argument.  This is amazing.  Let me show an example.
+
+First, I want to build a quarto markdown file.  In *RStudio*, that is `File > New file > Quarto document`.  The following is what it looks like to do this with an .RMarkdown document.
+
+## RMarkdown
+
+We will need to add a bit of metadata to the top.  The key component is the `params:` argument.  I want to pass a `ticker` with a default option.
+
+![](pic/yaml.png)
+
+Now, let's build up an example.
+
+## The Quarto Markdown
+
+![YAML](pic/Screenshot 2023-02-25 at 9.35.39 PM.png)
+
+
+I want to load a few libraries.
+
+```{r}
+library(tidyquant)
+library(ggplot2)
+library(fpp3)
+```
+
+Without loading anything else, this markdown is aware of what I passed it in `params$ticker`.  But `tidyquant` can make use of tickers and retrieve market OHLC data.  So let me proxy that behavior with Goldman Sachs as the example.
+
+```{r}
+params <- NULL
+params$ticker <- "GS"
+```
+
+Now my environment looks the same.  Let me use `tq_get` to get the data.
+
+```{r, warning=FALSE, message=FALSE}
+dat <- tq_get(params$ticker)
+```
+
+Now I want to use a special *geometry* for OHLC data.  I will also give it a title that deploys the ticker and use the special theme.
+
+```{r}
+dat %>% ggplot(aes(x = date, y = close)) +
+    geom_barchart(aes(open = open, high = high, low = low, close = close)) +
+    labs(title = paste(params$ticker,"Bar Chart"), y = "Closing Price", x = "") + 
+    theme_tq()
+```
+
+Let's look at a smooth with a simple 50 day moving average.
+
+```{r}
+dat %>%
+    ggplot(aes(x = date, y = close)) +
+    geom_line() +           # Plot stock price
+    geom_bbands(aes(high = high, low = low, close = close), ma_fun = SMA, n = 50)
+```
+
+
+We can also invoke `tidyquant` functions of the data, like returns or more complicated financial quantities.  
+
+```{r PlotRet}
+dat %>% tq_transmute(select= adjusted, 
+                 mutate_fun = periodReturn, 
+                 period     = "daily", 
+                 col_rename = "Ra") %>% 
+  as_tsibble(index=date) %>% 
+  autoplot()
+```
+
+## Adding Some Interactives
+
+The following are a few quick interactive plots.
+
+```{r}
+library(tidyquant)
+library(tidyverse)
+library(magrittr)
+# Use tidyquant to get the data
+# Slice off the most recent 120 days
+dat.tail <- tail(dat, 120)
+dat.tail %<>% mutate(
+    open = round(open, digits=2),
+    close = round(close, digits=2),
+    high = round(high, digits=2),
+    low = round(low, digits=2),
+    adjusted = round(adjusted, digits=2)
+    )
+library(DT)
+datatable(dat.tail)
+```
+
+## The Plot
+
+There are a few charts specifically designed for OHLC data that are included in `plotly`.  Here I want to deploy a basic one with one modification.  I want daily increases in black and daily decreases in red.
+
+```{r}
+library(plotly)
+# basic example of ohlc charts
+# custom colors
+i <- list(line = list(color = '#000000')) # black
+d <- list(line = list(color = '#FF0000')) # red
+# Create the figure
+fig.2 <- dat.tail %>%
+  plot_ly(x = ~date, type="ohlc",
+          open = ~open, close = ~close,
+          high = ~high, low = ~low,
+          increasing = i, decreasing = d)
+fig.2
+```
+
+After I have the model report written, I can save the file and stop.  The key is to note the file name and the full path.  I will store mine in whatever my current working directory is.  I want two more libraries; I need the `rmarkdown` library to *render* the file and I need the `purrr` library to *map* my tickers into render.  I created a little function for this called `Equity.Analyser` to simplify my use of map.  `tidyquant` has a function for acquiring all of the basic data on members of an index or exchange.  I want to choose the S and P 400 and then generate a report for each one.  What do we have?
+
+```{r}
+library(DT)
+SP400 <- tq_index("SP400") 
+datatable(SP400)
+```
+
+My interest here is the tickers.  They are housed in `symbol`.  I want to take the tickers and pass them as the argument to my document and then render the document for that case.  Combined with the blog setup, I should get a big list.
+
+```
+library(tidyquant)
+library(rmarkdown)
+library(purrr)
+Equity.Analyser <- function(x) {
+  render("TQ-Parameters.qmd", params = list(ticker = x), output_file = paste0(x,"-TQ-Parameters.html"))
+}
+SP400 <- tq_index("SP400")
+SP400$symbol %>% map(., function(x) { Equity.Analyser(x)})
+```
+
+
+# References
+
+```{r}
+knitr::write_bib(names(sessionInfo()$otherPkgs), file="bibliography.bib")
+```
+

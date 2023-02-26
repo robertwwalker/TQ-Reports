@@ -1,0 +1,6 @@
+---
+title: "Stock Reports"
+listing:
+  contents:
+    - "posts/reports/*.qmd"
+---
